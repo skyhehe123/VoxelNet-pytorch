@@ -3,7 +3,8 @@ import os
 import os.path
 import torch.utils.data as data
 import utils
-from utils import box3d_corner_to_center_batch, anchors_center_to_corner, corner_to_standup_box2d_batch, aug_data
+from utils import box3d_corner_to_center_batch, anchors_center_to_corner, corner_to_standup_box2d_batch
+from data_aug import aug_data
 from box_overlaps import bbox_overlaps
 import numpy as np
 import cv2
@@ -154,7 +155,7 @@ class KittiDataset(data.Dataset):
         lidar = np.fromfile(lidar_file, dtype=np.float32).reshape(-1, 4)
         lidar = utils.get_filtered_lidar(lidar)
 
-        lidar, gt_box3d = aug_data(lidar, gt_box3d)
+        #lidar, gt_box3d = aug_data(lidar, gt_box3d)
 
         if self.type == 'velodyne_train':
 

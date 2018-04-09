@@ -42,7 +42,6 @@ def detection_collate(batch):
            np.array(neg_equal_one),\
            np.array(targets)
 
-torch.backends.cudnn.benchmark=True
 torch.backends.cudnn.enabled=True
 
 # dataset

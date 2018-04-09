@@ -5,7 +5,7 @@ import math
 import mayavi.mlab as mlab
 import cv2
 from box_overlaps import *
-
+from data_aug import aug_data
 def get_filtered_lidar(lidar):
 
     pxs = lidar[:, 0]
@@ -204,16 +204,16 @@ def draw_rgb_projections(image, projections, color=(255,255,255), thickness=2, d
 
     return img
 
-def lidar_to_top_coords(x, y):
+def _quantize_coords(x, y):
     xx = cfg.H - int((y - cfg.yrange[0]) / cfg.vh)
     yy = cfg.W - int((x - cfg.xrange[0]) / cfg.vw)
     return xx, yy
 
-def draw_polygons(image, polygons,color=(255,255,255), thickness=1, darken=1):
+def  draw_polygons(image, polygons,color=(255,255,255), thickness=1, darken=1):
 
     img = image.copy() * darken
     for polygon in polygons:
-        tup0, tup1, tup2, tup3 = [lidar_to_top_coords(*tup) for tup in list(zip(polygon[0::2], polygon[1::2]))]
+        tup0, tup1, tup2, tup3 = [_quantize_coords(*tup) for tup in polygon]
         cv2.line(img, tup0, tup1, color, thickness, cv2.LINE_AA)
         cv2.line(img, tup1, tup2, color, thickness, cv2.LINE_AA)
         cv2.line(img, tup2, tup3, color, thickness, cv2.LINE_AA)
@@ -224,7 +224,7 @@ def draw_rects(image, rects, color=(255,255,255), thickness=1, darken=1):
 
     img = image.copy() * darken
     for rect in rects:
-        tup0,tup1 = [lidar_to_top_coords(*tup) for tup in list(zip(rect[0::2], rect[1::2]))]
+        tup0,tup1 = [_quantize_coords(*tup) for tup in list(zip(rect[0::2], rect[1::2]))]
         cv2.rectangle(img, tup0, tup1, color, thickness, cv2.LINE_AA)
     return img
 
@@ -334,34 +334,6 @@ def anchors_center_to_corner(anchors):
         anchor_corner[i] = box2d
     return anchor_corner
 
-def box3d_corner_to_top_batch(boxes3d, use_min_rect=False):
-    # [N,8,3] -> [N,4,2] -> [N,8]
-    box3d_top=[]
-
-    num =len(boxes3d)
-    for n in range(num):
-        b   = boxes3d[n]
-        x0 = b[0,0]
-        y0 = b[0,1]
-        x1 = b[1,0]
-        y1 = b[1,1]
-        x2 = b[2,0]
-        y2 = b[2,1]
-        x3 = b[3,0]
-        y3 = b[3,1]
-        box3d_top.append([x0,y0,x1,y1,x2,y2,x3,y3])
-
-    if use_min_rect:
-        box8pts = np.array(box3d_top)
-        min_rects = np.zeros((box8pts.shape[0], 4), dtype=np.int32)
-        # calculate minimum rectangle
-        min_rects[:, 0] = np.min(box8pts[:, [0, 2, 4, 6]], axis=1)
-        min_rects[:, 1] = np.min(box8pts[:, [1, 3, 5, 7]], axis=1)
-        min_rects[:, 2] = np.max(box8pts[:, [0, 2, 4, 6]], axis=1)
-        min_rects[:, 3] = np.max(box8pts[:, [1, 3, 5, 7]], axis=1)
-        return min_rects
-
-    return box3d_top
 
 def corner_to_standup_box2d_batch(boxes_corner):
     # (N, 4, 2) -> (N, 4) x1, y1, x2, y2
@@ -444,177 +416,6 @@ def load_kitti_label(label_file, Tr):
 
     return gt_boxes3d_corner
 
-def point_transform(points, tx, ty, tz, rx=0, ry=0, rz=0):
-    # Input:
-    #   points: (N, 3)
-    #   rx/y/z: in radians
-    # Output:
-    #   points: (N, 3)
-    N = points.shape[0]
-    points = np.hstack([points, np.ones((N, 1))])
-    mat1 = np.eye(4)
-    mat1[3, 0:3] = tx, ty, tz
-    points = np.matmul(points, mat1)
-    if rx != 0:
-        mat = np.zeros((4, 4))
-        mat[0, 0] = 1
-        mat[3, 3] = 1
-        mat[1, 1] = np.cos(rx)
-        mat[1, 2] = -np.sin(rx)
-        mat[2, 1] = np.sin(rx)
-        mat[2, 2] = np.cos(rx)
-        points = np.matmul(points, mat)
-    if ry != 0:
-        mat = np.zeros((4, 4))
-        mat[1, 1] = 1
-        mat[3, 3] = 1
-        mat[0, 0] = np.cos(ry)
-        mat[0, 2] = np.sin(ry)
-        mat[2, 0] = -np.sin(ry)
-        mat[2, 2] = np.cos(ry)
-        points = np.matmul(points, mat)
-    if rz != 0:
-        mat = np.zeros((4, 4))
-        mat[2, 2] = 1
-        mat[3, 3] = 1
-        mat[0, 0] = np.cos(rz)
-        mat[0, 1] = -np.sin(rz)
-        mat[1, 0] = np.sin(rz)
-        mat[1, 1] = np.cos(rz)
-        points = np.matmul(points, mat)
-    return points[:, 0:3]
-
-def box_transform(boxes_corner, tx, ty, tz, r=0):
-    # boxes_corner (N, 8, 3)
-    for idx in range(len(boxes_corner)):
-        boxes_corner[idx] = point_transform(boxes_corner[idx], tx, ty, tz, rz=r)
-    return boxes_corner
-
-def cal_iou2d(box1_corner, box2_corner):
-    box1_corner = np.reshape(box1_corner, [4, 2])
-    box2_corner = np.reshape(box2_corner, [4, 2])
-    buf1 = np.zeros((cfg.H, cfg.W, 3))
-    buf2 = np.zeros((cfg.H, cfg.W, 3))
-    buf1 = cv2.fillConvexPoly(buf1, box1_corner, color=(1,1,1))[..., 0]
-    buf2 = cv2.fillConvexPoly(buf2, box2_corner, color=(1,1,1))[..., 0]
-    indiv = np.sum(np.absolute(buf1-buf2))
-    share = np.sum((buf1 + buf2) == 2)
-    if indiv == 0:
-        return 0.0 # when target is out of bound
-    return share / (indiv + share)
-
-def aug_data(lidar, gt_box3d_corner):
-    np.random.seed()
-
-    choice = np.random.randint(1, 10)
-
-    if choice >= 7:
-        for idx in range(len(gt_box3d_corner)):
-            # TODO: precisely gather the point
-            is_collision = True
-            _count = 0
-            while is_collision and _count < 100:
-                t_rz = np.random.uniform(-np.pi / 10, np.pi / 10)
-                t_x = np.random.normal()
-                t_y = np.random.normal()
-                t_z = np.random.normal()
-                # check collision
-                tmp = box_transform(
-                    gt_box3d_corner[[idx]], t_x, t_y, t_z, t_rz)
-                is_collision = False
-                for idy in range(idx):
-                    iou = cal_iou2d(box3d_corner_to_top_batch(tmp)[0],
-                                    box3d_corner_to_top_batch(gt_box3d_corner[[idy]])[0])
-                    if iou > 0:
-                        is_collision = True
-                        _count += 1
-                        break
-            if not is_collision:
-                box_corner = gt_box3d_corner[idx]
-                minx = np.min(box_corner[:, 0])
-                miny = np.min(box_corner[:, 1])
-                minz = np.min(box_corner[:, 2])
-                maxx = np.max(box_corner[:, 0])
-                maxy = np.max(box_corner[:, 1])
-                maxz = np.max(box_corner[:, 2])
-                bound_x = np.logical_and(
-                    lidar[:, 0] >= minx, lidar[:, 0] <= maxx)
-                bound_y = np.logical_and(
-                    lidar[:, 1] >= miny, lidar[:, 1] <= maxy)
-                bound_z = np.logical_and(
-                    lidar[:, 2] >= minz, lidar[:, 2] <= maxz)
-                bound_box = np.logical_and(
-                    np.logical_and(bound_x, bound_y), bound_z)
-                lidar[bound_box, 0:3] = point_transform(
-                    lidar[bound_box, 0:3], t_x, t_y, t_z, rz=t_rz)
-                gt_box3d_corner[idx] = box_transform(
-                    gt_box3d_corner[[idx]], t_x, t_y, t_z, t_rz)
-
-        gt_box3d = gt_box3d_corner
-
-    elif choice < 7 and choice >= 4:
-        # global rotation
-        angle = np.random.uniform(-np.pi / 4, np.pi / 4)
-        lidar[:, 0:3] = point_transform(lidar[:, 0:3], 0, 0, 0, rz=angle)
-        gt_box3d = box_transform(gt_box3d_corner, 0, 0, 0, r=angle)
-
-    else:
-        # global scaling
-        factor = np.random.uniform(0.95, 1.05)
-        lidar[:, 0:3] = lidar[:, 0:3] * factor
-        gt_box3d = gt_box3d_corner * factor
-
-    return lidar, gt_box3d
-
-def box_nms(bboxes, scores, threshold=0.5, mode='union'):
-    '''Non maximum suppression.
-    Args:
-      bboxes: (tensor) bounding boxes, sized [N,4].
-      scores: (tensor) bbox scores, sized [N,].
-      threshold: (float) overlap threshold.
-      mode: (str) 'union' or 'min'.
-    Returns:
-      keep: (tensor) selected indices.
-    Reference:
-      https://github.com/rbgirshick/py-faster-rcnn/blob/master/lib/nms/py_cpu_nms.py
-    '''
-    x1 = bboxes[:,0]
-    y1 = bboxes[:,1]
-    x2 = bboxes[:,2]
-    y2 = bboxes[:,3]
-
-    areas = (x2-x1+1) * (y2-y1+1)
-    _, order = scores.sort(0, descending=True)
-
-    keep = []
-    while order.numel() > 0:
-        i = order[0]
-        keep.append(i)
-
-        if order.numel() == 1:
-            break
-
-        xx1 = x1[order[1:]].clamp(min=x1[i])
-        yy1 = y1[order[1:]].clamp(min=y1[i])
-        xx2 = x2[order[1:]].clamp(max=x2[i])
-        yy2 = y2[order[1:]].clamp(max=y2[i])
-
-        w = (xx2-xx1+1).clamp(min=0)
-        h = (yy2-yy1+1).clamp(min=0)
-        inter = w*h
-
-        if mode == 'union':
-            ovr = inter / (areas[i] + areas[order[1:]] - inter)
-        elif mode == 'min':
-            ovr = inter / areas[order[1:]].clamp(max=areas[i])
-        else:
-            raise TypeError('Unknown nms mode: %s.' % mode)
-
-        ids = (ovr<=threshold).nonzero().squeeze()
-        if ids.numel() == 0:
-            break
-        order = order[ids+1]
-    return keep
 
 def test():
     import os
@@ -648,7 +449,7 @@ def test():
     gt_box3d = load_kitti_label(label_file, calib['Tr_velo2cam'])
 
     # augmentation
-    #lidar, gt_box3d = aug_data(lidar,gt_box3d)
+    lidar, gt_box3d = aug_data(lidar,gt_box3d)
 
     # filtering
     lidar = get_filtered_lidar(lidar)
@@ -662,16 +463,17 @@ def test():
 
     # view in image
 
-    gt_3dTo2D = project_velo2rgb(gt_box3d, calib)
-    img_with_box = draw_rgb_projections(image,gt_3dTo2D, color=(0,0,255),thickness=1)
-    plt.imshow(img_with_box[:,:,[2,1,0]])
-    plt.show()
+    # gt_3dTo2D = project_velo2rgb(gt_box3d, calib)
+    # img_with_box = draw_rgb_projections(image,gt_3dTo2D, color=(0,0,255),thickness=1)
+    # plt.imshow(img_with_box[:,:,[2,1,0]])
+    # plt.show()
 
     # view in bird-eye view
 
     top_new, density_image=lidar_to_top(lidar)
-    gt_box3d_top = box3d_corner_to_top_batch(gt_box3d, use_min_rect=False)
-    density_with_box = draw_polygons(density_image,gt_box3d_top)
+    # gt_box3d_top = corner_to_standup_box2d_batch(gt_box3d)
+    # density_with_box = draw_rects(density_image,gt_box3d_top)
+    density_with_box = draw_polygons(density_image,gt_box3d[:,:4,:2])
     plt.imshow(density_with_box,cmap='gray')
     plt.show()
 
