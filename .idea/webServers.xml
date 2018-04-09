@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="ddc7a3a1-0cac-46ab-bcc8-7677b4eb0ec9" name="lab" url="http://158.132.21.81">
+        <fileTransfer host="158.132.21.81" port="6001" privateKey="$USER_HOME$/.ssh/lab" rootFolder="/home/lab/billy" accessType="SFTP" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" />
+          </advancedOptions>
+          <option name="port" value="6001" />
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
