@@ -1,4 +1,4 @@
-data/
+data/KITTI/
 results/
 nms/_ext/
 build/
