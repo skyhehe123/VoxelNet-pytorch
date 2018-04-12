@@ -152,6 +152,8 @@ class KittiDataset(data.Dataset):
 
 
         if self.type == 'velodyne_train':
+            image = cv2.imread(image_file)
+
             # data augmentation
             lidar, gt_box3d = aug_data(lidar, gt_box3d)
 
@@ -164,17 +166,10 @@ class KittiDataset(data.Dataset):
             # bounding-box encoding
             pos_equal_one, neg_equal_one, targets = self.cal_target(gt_box3d)
 
-            return voxel_features, voxel_coords, pos_equal_one, neg_equal_one, targets
+            return voxel_features, voxel_coords, pos_equal_one, neg_equal_one, targets, image, calib, self.file_list[i]
 
         elif self.type == 'velodyne_test':
-            # specify a range
-            lidar, gt_box3d = utils.get_filtered_lidar(lidar, gt_box3d)
-
-            image = cv2.imread(image_file)
-
-            pos_equal_one, neg_equal_one, targets = self.cal_target(gt_box3d)
-
-            return lidar,image,calib,targets,pos_equal_one, self.file_list[i]
+            NotImplemented
 
         else:
             raise ValueError('the type invalid')

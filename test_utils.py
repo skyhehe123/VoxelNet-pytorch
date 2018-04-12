@@ -3,7 +3,7 @@ from config import config as cfg
 from data.kitti import KittiDataset
 import torch.utils.data as data
 from nms.pth_nms import pth_nms
-import mayavi.mlab as mlab
+import torch.nn.functional as F
 import numpy as np
 import torch.backends.cudnn
 import cv2
@@ -134,56 +134,42 @@ def box3d_corner_to_top_batch(boxes3d, use_min_rect=True):
 
     return box3d_top
 
-
-dataset=KittiDataset(cfg=cfg,root='./data/KITTI',set='val',type='velodyne_test')
-data_loader = data.DataLoader(dataset, batch_size=cfg.N, num_workers=4, collate_fn=detection_collate, shuffle=False, \
-                              pin_memory=False)
-
-batch_iterator = iter(data_loader)
-for _ in range(len(data_loader)):
-    lidars, images, calibs, targets, pos_equal_ones, ids = next(batch_iterator)
-
-    batch_boxes3d = delta_to_boxes3d(targets, cfg.anchors)
-    pos_equal_ones = pos_equal_ones.view(cfg.N,-1)
-
-    mask = torch.gt(pos_equal_ones,cfg.score_threshold)
-    mask_reg = mask.unsqueeze(2).repeat(1,1,7)
-
-
+def draw_boxes(reg, prob, images, calibs, ids, tag):
+    prob = prob.view(cfg.N, -1)
+    batch_boxes3d = delta_to_boxes3d(reg, cfg.anchors)
+    mask = torch.gt(prob, cfg.score_threshold)
+    mask_reg = mask.unsqueeze(2).repeat(1, 1, 7)
 
     for batch_id in range(cfg.N):
-        p_pos = pos_equal_ones
         boxes3d = torch.masked_select(batch_boxes3d[batch_id], mask_reg[batch_id]).view(-1, 7)
-        scores = torch.masked_select(p_pos[batch_id], mask[batch_id])
+        scores = torch.masked_select(prob[batch_id], mask[batch_id])
 
-        lidar = lidars[batch_id]
-        lidar = get_filtered_lidar(lidar)
         image = images[batch_id]
         calib = calibs[batch_id]
         id = ids[batch_id]
+
         if len(boxes3d) != 0:
 
             boxes3d_corner = box3d_center_to_corner_batch(boxes3d)
             boxes2d = box3d_corner_to_top_batch(boxes3d_corner)
-            boxes2d_score = torch.cat((boxes2d,scores.unsqueeze(1)),dim=1)
+            boxes2d_score = torch.cat((boxes2d, scores.unsqueeze(1)), dim=1)
 
             # NMS
-            keep = pth_nms(boxes2d_score,cfg.nms_threshold)
+            keep = pth_nms(boxes2d_score, cfg.nms_threshold)
             boxes3d_corner_keep = boxes3d_corner[keep]
             print("No. %d objects detected" % len(boxes3d_corner_keep))
 
-            # from utils import draw_gt_boxes3d,draw_lidar
-            # fig = draw_lidar(lidar, is_grid=False, is_top_region=True)
-            # draw_gt_boxes3d(gt_boxes3d=boxes3d_corner_keep, fig=fig)
-            # mlab.show()
-
             rgb_2D = project_velo2rgb(boxes3d_corner_keep, calib)
             img_with_box = draw_rgb_projections(image, rgb_2D, color=(0, 0, 255), thickness=1)
-            cv2.imwrite('results/%s.png' % id, img_with_box)
+            cv2.imwrite('results/%s_%s.png' % (id,tag), img_with_box)
 
         else:
-            cv2.imwrite('results/%s.png' % id, image)
+            cv2.imwrite('results/%s_%s.png' % (id,tag), image)
             print("No objects detected")
+
+
+
+
 
 
 
