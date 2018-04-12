@@ -6,7 +6,8 @@ import mayavi.mlab as mlab
 import cv2
 from box_overlaps import *
 from data_aug import aug_data
-def get_filtered_lidar(lidar):
+
+def get_filtered_lidar(lidar, boxes3d=None):
 
     pxs = lidar[:, 0]
     pys = lidar[:, 1]
@@ -18,9 +19,17 @@ def get_filtered_lidar(lidar):
     filter_xy = np.intersect1d(filter_x, filter_y)
     filter_xyz = np.intersect1d(filter_xy, filter_z)
 
+    if boxes3d is not None:
+        box_x = (boxes3d[:, :, 0] >= cfg.xrange[0]) & (boxes3d[:, :, 0] < cfg.xrange[1])
+        box_y = (boxes3d[:, :, 1] >= cfg.yrange[0]) & (boxes3d[:, :, 1] < cfg.yrange[1])
+        box_z = (boxes3d[:, :, 2] >= cfg.zrange[0]) & (boxes3d[:, :, 2] < cfg.zrange[1])
+        box_xyz = np.sum(box_x & box_y & box_z,axis=1)
+
+        return lidar[filter_xyz], boxes3d[box_xyz>0]
+
     return lidar[filter_xyz]
 
-def lidar_to_top(lidar):
+def lidar_to_bev(lidar):
 
     X0, Xn = 0, cfg.W
     Y0, Yn = 0, cfg.H
@@ -29,8 +38,6 @@ def lidar_to_top(lidar):
     width  = Yn - Y0
     height   = Xn - X0
     channel = Zn - Z0  + 2
-
-    lidar = get_filtered_lidar(lidar)
 
     pxs = lidar[:, 0]
     pys = lidar[:, 1]
@@ -59,7 +66,7 @@ def lidar_to_top(lidar):
 
     if 1:
         # top_image = np.sum(top[:,:,:-1],axis=2)
-        density_image=top[:,:,-1]
+        density_image = top[:,:,-1]
         density_image = density_image-np.min(density_image)
         density_image = (density_image/np.max(density_image)*255).astype(np.uint8)
         # top_image = np.dstack((top_image, top_image, top_image)).astype(np.uint8)
@@ -67,7 +74,8 @@ def lidar_to_top(lidar):
 
     return top, density_image
 
-def draw_lidar(lidar, is_grid=False, is_top_region=True, fig=None):
+
+def draw_lidar(lidar, is_grid=False, is_axis = True, is_top_region=True, fig=None):
 
     pxs=lidar[:,0]
     pys=lidar[:,1]
@@ -98,7 +106,7 @@ def draw_lidar(lidar, is_grid=False, is_top_region=True, fig=None):
             mlab.plot3d([x1, x2], [y1, y2], [z1,z2], color=(0.5,0.5,0.5), tube_radius=None, line_width=1, figure=fig)
 
     #draw axis
-    if 1:
+    if is_grid:
         mlab.points3d(0, 0, 0, color=(1,1,1), mode='sphere', scale_factor=0.2)
 
         axes=np.array([
@@ -128,8 +136,6 @@ def draw_lidar(lidar, is_grid=False, is_top_region=True, fig=None):
         mlab.plot3d([x2, x2], [y1, y2], [0,0], color=(0.5,0.5,0.5), tube_radius=None, line_width=1, figure=fig)
         mlab.plot3d([x1, x2], [y1, y1], [0,0], color=(0.5,0.5,0.5), tube_radius=None, line_width=1, figure=fig)
         mlab.plot3d([x1, x2], [y2, y2], [0,0], color=(0.5,0.5,0.5), tube_radius=None, line_width=1, figure=fig)
-
-
 
     mlab.orientation_axes()
     mlab.view(azimuth=180,elevation=None,distance=50,focalpoint=[ 12.0909996 , -1.04700089, -2.03249991])#2.0909996 , -1.04700089, -2.03249991
@@ -181,12 +187,9 @@ def draw_rgb_projections(image, projections, color=(255,255,255), thickness=2, d
     forward_color=(255,255,0)
     for n in range(num):
         qs = projections[n]
-        # cv2.putText(image,"%d"%n, (qs[6,0],qs[6,1]), cv2.CV_FONT_HERSHEY_SIMPLEX, 2, 255)
         for k in range(0,4):
-            #http://docs.enthought.com/mayavi/mayavi/auto/mlab_helper_functions.html
             i,j=k,(k+1)%4
-            # if length_filter((qs[i,0],qs[i,1]),(qs[j,0],qs[j,1]),img):
-            #     break
+
             cv2.line(img, (qs[i,0],qs[i,1]), (qs[j,0],qs[j,1]), color, thickness, cv2.LINE_AA)
 
             i,j=k+4,(k+1)%4 + 4
@@ -400,14 +403,6 @@ def load_kitti_label(label_file, Tr):
         if obj_class not in cfg.class_list:
             continue
 
-        # abandon box which are not lie in the range
-        if float(obj[-2]) < cfg.xrange[0] or float(obj[-2]) > cfg.xrange[1]:
-            continue
-        if -float(obj[-4]) < cfg.yrange[0] or -float(obj[-4]) > cfg.yrange[1]:
-            continue
-        if -float(obj[-3]) < cfg.zrange[0] or -float(obj[-3]) > cfg.zrange[1]:
-            continue
-
         box3d_corner = box3d_cam_to_velo(obj[8:], Tr)
 
         gt_boxes3d_corner.append(box3d_corner)
@@ -428,12 +423,9 @@ def test():
     label_path = os.path.join('./data/KITTI/training', "label_2/")
 
 
-    files_list=glob.glob(label_path + '/*.txt')
+    file=[i.strip().split('/')[-1][:-4] for i in sorted(os.listdir(label_path))]
 
-
-    file=[i.strip().split('/')[-1][:-4] for i in files_list]
-
-    i=8
+    i=2600
 
     lidar_file = lidar_path + '/' + file[i] + '.bin'
     calib_file = calib_path + '/' + file[i] + '.txt'
@@ -449,17 +441,16 @@ def test():
     gt_box3d = load_kitti_label(label_file, calib['Tr_velo2cam'])
 
     # augmentation
-    lidar, gt_box3d = aug_data(lidar,gt_box3d)
+    #lidar, gt_box3d = aug_data(lidar, gt_box3d)
 
     # filtering
-    lidar = get_filtered_lidar(lidar)
-
+    lidar, gt_box3d = get_filtered_lidar(lidar, gt_box3d)
 
     # view in point cloud
 
-    fig = draw_lidar(lidar, is_grid=False, is_top_region=True)
-    draw_gt_boxes3d(gt_boxes3d=gt_box3d, fig=fig)
-    mlab.show()
+    # fig = draw_lidar(lidar, is_grid=False, is_top_region=True)
+    # draw_gt_boxes3d(gt_boxes3d=gt_box3d, fig=fig)
+    # mlab.show()
 
     # view in image
 
@@ -470,7 +461,7 @@ def test():
 
     # view in bird-eye view
 
-    top_new, density_image=lidar_to_top(lidar)
+    top_new, density_image=lidar_to_bev(lidar)
     # gt_box3d_top = corner_to_standup_box2d_batch(gt_box3d)
     # density_with_box = draw_rects(density_image,gt_box3d_top)
     density_with_box = draw_polygons(density_image,gt_box3d[:,:4,:2])

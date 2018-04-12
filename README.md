@@ -28,18 +28,22 @@ $ python3 nms/build.py
     * Left color images of object data set (12 GB): for visualization of predictions
 
 2. In this project, the cropped point cloud data for training and validation. Point clouds outside the image coordinates are removed.
-
-3. Split the training set into training and validation set according to the protocol [here](https://xiaozhichen.github.io/files/mv3d/imagesets.tar.gz). And rearrange the folders to have the following structure:
+```bash
+$ python3 data/crop.py
+```
+3. Split the training set into training and validation set according to the protocol [here](https://xiaozhichen.github.io/files/mv3d/imagesets.tar.gz).
 ```plain
 └── DATA_DIR
        ├── training   <-- training data
        |   ├── image_2
        |   ├── label_2
-       |   └── velodyne
+       |   ├── velodyne
+       |   └── crop
        └── testing  <--- testing data
        |   ├── image_2
        |   ├── label_2
-       |   └── velodyne
+       |   ├── velodyne
+       |   └── crop
 ```
 
 # Train
@@ -48,10 +52,12 @@ $ python3 nms/build.py
 
 
 # TODO
+- [x] training code
+- [x] data augmentation
+- [ ] validation code
+- [ ] reproduce results for `Car`, `Pedestrian` and `Cyclist`
+- [ ] multi-gpu support
 - [ ] improve the performances
-- [ ] reproduce results for `Pedestrian` and `Cyclist`
-- [ ] fix the deadlock problem in multi-thread processing in training
-- [ ] fix the infinite loop problem in `test.py`
-- [ ] replace averaged calibration matrices with correct ones
+
 
 

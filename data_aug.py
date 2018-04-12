@@ -1,11 +1,19 @@
 import numpy as np
 from config import config as cfg
 import cv2
+import matplotlib.pyplot as plt
 
-def _quantize_coords(x, y):
-    xx = cfg.H - int((y - cfg.yrange[0]) / cfg.vh)
-    yy = cfg.W - int((x - cfg.xrange[0]) / cfg.vw)
-    return xx, yy
+def draw_polygon(img, box_corner, color = (255, 255, 255),thickness = 1):
+
+    tup0 = (box_corner[0, 1],box_corner[0, 0])
+    tup1 = (box_corner[1, 1],box_corner[1, 0])
+    tup2 = (box_corner[2, 1],box_corner[2, 0])
+    tup3 = (box_corner[3, 1],box_corner[3, 0])
+    cv2.line(img, tup0, tup1, color, thickness, cv2.LINE_AA)
+    cv2.line(img, tup1, tup2, color, thickness, cv2.LINE_AA)
+    cv2.line(img, tup2, tup3, color, thickness, cv2.LINE_AA)
+    cv2.line(img, tup3, tup0, color, thickness, cv2.LINE_AA)
+    return img
 
 def point_transform(points, tx, ty, tz, rx=0, ry=0, rz=0):
     # Input:
@@ -56,12 +64,14 @@ def box_transform(boxes_corner, tx, ty, tz, r=0):
 def cal_iou2d(box1_corner, box2_corner):
     box1_corner = np.reshape(box1_corner, [4, 2])
     box2_corner = np.reshape(box2_corner, [4, 2])
-    box1_corner = ((box1_corner - (cfg.yrange[0], cfg.xrange[0])) / (cfg.vh, cfg.vw)).astype(np.int32)
-    box2_corner = ((box2_corner - (cfg.yrange[0], cfg.xrange[0])) / (cfg.vh, cfg.vw)).astype(np.int32)
+    box1_corner = ((cfg.W, cfg.H)-(box1_corner - (cfg.xrange[0], cfg.yrange[0])) / (cfg.vw, cfg.vh)).astype(np.int32)
+    box2_corner = ((cfg.W, cfg.H)-(box2_corner - (cfg.xrange[0], cfg.yrange[0])) / (cfg.vw, cfg.vh)).astype(np.int32)
+
     buf1 = np.zeros((cfg.H, cfg.W, 3))
     buf2 = np.zeros((cfg.H, cfg.W, 3))
     buf1 = cv2.fillConvexPoly(buf1, box1_corner, color=(1,1,1))[..., 0]
     buf2 = cv2.fillConvexPoly(buf2, box2_corner, color=(1,1,1))[..., 0]
+
     indiv = np.sum(np.absolute(buf1-buf2))
     share = np.sum((buf1 + buf2) == 2)
     if indiv == 0:
@@ -72,7 +82,7 @@ def aug_data(lidar, gt_box3d_corner):
     np.random.seed()
 
     choice = np.random.randint(1, 10)
-    choice=7
+
     if choice >= 7:
         for idx in range(len(gt_box3d_corner)):
             # TODO: precisely gather the point
@@ -83,6 +93,7 @@ def aug_data(lidar, gt_box3d_corner):
                 t_x = np.random.normal()
                 t_y = np.random.normal()
                 t_z = np.random.normal()
+
                 # check collision
                 tmp = box_transform(
                     gt_box3d_corner[[idx]], t_x, t_y, t_z, t_rz)

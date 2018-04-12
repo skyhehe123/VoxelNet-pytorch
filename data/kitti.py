@@ -144,28 +144,36 @@ class KittiDataset(data.Dataset):
         calib_file = self.calib_path + '/' + self.file_list[i] + '.txt'
         label_file = self.label_path + '/' + self.file_list[i] + '.txt'
         image_file = self.image_path + '/' + self.file_list[i] + '.png'
-        # lidar_file = self.lidar_path + '/' + '000008' + '.bin'
-        # calib_file = self.calib_path + '/' + '000008' + '.txt'
-        # label_file = self.label_path + '/' + '000008' + '.txt'
-        # image_file = self.image_path + '/' + '000008' + '.png'
 
         calib = utils.load_kitti_calib(calib_file)
         Tr = calib['Tr_velo2cam']
         gt_box3d = utils.load_kitti_label(label_file, Tr)
         lidar = np.fromfile(lidar_file, dtype=np.float32).reshape(-1, 4)
-        lidar = utils.get_filtered_lidar(lidar)
 
-        #lidar, gt_box3d = aug_data(lidar, gt_box3d)
 
         if self.type == 'velodyne_train':
+            # data augmentation
+            lidar, gt_box3d = aug_data(lidar, gt_box3d)
 
+            # specify a range
+            lidar, gt_box3d = utils.get_filtered_lidar(lidar, gt_box3d)
+
+            # voxelize
             voxel_features, voxel_coords = self.preprocess(lidar)
+
+            # bounding-box encoding
             pos_equal_one, neg_equal_one, targets = self.cal_target(gt_box3d)
+
             return voxel_features, voxel_coords, pos_equal_one, neg_equal_one, targets
 
         elif self.type == 'velodyne_test':
+            # specify a range
+            lidar, gt_box3d = utils.get_filtered_lidar(lidar, gt_box3d)
+
             image = cv2.imread(image_file)
+
             pos_equal_one, neg_equal_one, targets = self.cal_target(gt_box3d)
+
             return lidar,image,calib,targets,pos_equal_one, self.file_list[i]
 
         else:
